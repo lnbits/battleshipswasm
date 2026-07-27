@@ -108,6 +108,16 @@ jobs:
           git pull origin "$BRANCH" || echo "Branch does not exist yet"
 
           sh util.sh update_extension "$REPO_NAME" "$TAG"
+          ICON_URL="https://raw.githubusercontent.com/lnbits/$REPO_NAME/$TAG/static/assets/icon.png"
+          curl --fail --silent --show-error --location --output /dev/null "$ICON_URL"
+          jq --arg repo "$REPO_NAME" --arg icon "$ICON_URL" '
+            if (.extensions | any(.id == $repo)) then
+              .extensions |= map(if .id == $repo then .icon = $icon else . end)
+            else
+              error("extension not found: \($repo)")
+            end
+          ' extensions.json > extensions.json.tmp
+          mv extensions.json.tmp extensions.json
 
           git add -A
           if ! git diff --cached --quiet; then

@@ -2,7 +2,7 @@
   "id": "battleshipswasm",
   "name": "Battleships",
   "short_description": "Create paid public Battleships games where the winner takes the pot.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "min_lnbits_version": "1.5.5",
   "tile": "/battleshipswasm/static/assets/icon.png",
   "tags": ["gaming", "battleships", "wasm"],
