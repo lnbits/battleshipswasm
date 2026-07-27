@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "tables": {
+    "battleships_settings": {
+      "fields": [
+        {"name": "id", "type": "string"},
+        {"name": "wallet_id", "type": "string"},
+        {"name": "wallet_name", "type": "string"},
+        {"name": "enabled", "type": "boolean"},
+        {"name": "haircut", "type": "number"},
+        {"name": "join_amount", "type": "integer"},
+        {"name": "max_bet", "type": "integer"},
+        {"name": "created_at", "type": "datetime"},
+        {"name": "updated_at", "type": "datetime"}
+      ]
+    },
+    "battleships_games": {
+      "fields": [
+        {"name": "id", "type": "string"},
+        {"name": "settings_id", "type": "string"},
+        {"name": "wallet_id", "type": "string"},
+        {"name": "name", "type": "string"},
+        {"name": "join_amount", "type": "integer"},
+        {"name": "haircut", "type": "number"},
+        {"name": "players_count", "type": "integer"},
+        {"name": "status", "type": "string"},
+        {"name": "player_one_ln_address", "type": "string"},
+        {"name": "player_two_ln_address", "type": "string"},
+        {"name": "player_one_payment_hash", "type": "string"},
+        {"name": "player_two_payment_hash", "type": "string"},
+        {"name": "player_one_fleet_placed", "type": "boolean"},
+        {"name": "player_two_fleet_placed", "type": "boolean"},
+        {"name": "winner_side", "type": "string"},
+        {"name": "winner_ln_address", "type": "string"},
+        {"name": "payout_pending", "type": "boolean"},
+        {"name": "payout_status", "type": "string"},
+        {"name": "turn", "type": "string"},
+        {"name": "shot_count", "type": "integer"},
+        {"name": "created_at", "type": "datetime"},
+        {"name": "updated_at", "type": "datetime"},
+        {"name": "started_at", "type": "datetime", "nullable": true},
+        {"name": "completed_at", "type": "datetime", "nullable": true}
+      ]
+    },
+    "battleships_players": {
+      "fields": [
+        {"name": "id", "type": "string"},
+        {"name": "game_id", "type": "string"},
+        {"name": "ln_address", "type": "string"},
+        {"name": "payment_hash", "type": "string"},
+        {"name": "side", "type": "string"},
+        {"name": "status", "type": "string"},
+        {"name": "created_at", "type": "datetime"},
+        {"name": "paid_at", "type": "datetime", "nullable": true}
+      ]
+    },
+    "battleships_fleets": {
+      "fields": [
+        {"name": "id", "type": "string"},
+        {"name": "game_id", "type": "string"},
+        {"name": "side", "type": "string"},
+        {"name": "ships_json", "type": "string"},
+        {"name": "hits_json", "type": "string"},
+        {"name": "placed_at", "type": "datetime"}
+      ]
+    },
+    "battleships_shots": {
+      "fields": [
+        {"name": "id", "type": "string"},
+        {"name": "game_id", "type": "string"},
+        {"name": "shot_number", "type": "integer"},
+        {"name": "side", "type": "string"},
+        {"name": "target_side", "type": "string"},
+        {"name": "cell", "type": "string"},
+        {"name": "result", "type": "string"},
+        {"name": "ship", "type": "string"},
+        {"name": "sunk", "type": "boolean"},
+        {"name": "created_at", "type": "datetime"}
+      ]
+    }
+  },
+  "indexes": [
+    {
+      "table": "battleships_games",
+      "name": "battleships_games_by_settings",
+      "field": "settings_id"
+    },
+    {
+      "table": "battleships_players",
+      "name": "battleships_players_by_game",
+      "field": "game_id"
+    },
+    {
+      "table": "battleships_players",
+      "name": "battleships_players_by_payment_hash",
+      "field": "payment_hash"
+    },
+    {
+      "table": "battleships_fleets",
+      "name": "battleships_fleets_by_game",
+      "field": "game_id"
+    },
+    {
+      "table": "battleships_shots",
+      "name": "battleships_shots_by_game",
+      "field": "game_id"
+    }
+  ]
+}

@@ -1,0 +1,244 @@
+{
+  "id": "battleshipswasm",
+  "name": "Battleships",
+  "short_description": "Create paid public Battleships games where the winner takes the pot.",
+  "version": "0.1.0",
+  "min_lnbits_version": "1.5.5",
+  "tile": "/battleshipswasm/static/assets/icon.png",
+  "tags": ["gaming", "battleships", "wasm"],
+  "extension_type": "wasm",
+  "wasm": {
+    "module": "wasm/module.wasm",
+    "world": "battleshipswasm",
+    "exports": [
+      {"name": "get-battleships-settings", "visibility": "authenticated"},
+      {"name": "save-battleships-settings", "visibility": "authenticated"},
+      {"name": "list-battleships-wallets", "visibility": "authenticated"},
+      {"name": "create-battleships-game", "visibility": "authenticated"},
+      {"name": "list-battleships-games", "visibility": "authenticated"},
+      {"name": "delete-battleships-game", "visibility": "authenticated"},
+      {"name": "get-public-battleships-game", "visibility": "public"},
+      {"name": "join-battleships-game", "visibility": "public"},
+      {"name": "place-battleships-fleet", "visibility": "public"},
+      {"name": "fire-battleships-shot", "visibility": "public"},
+      {"name": "resign-battleships-game", "visibility": "public"},
+      {
+        "name": "settle-player-battleships-payout",
+        "visibility": "public"
+      },
+      {"name": "settle-battleships-game", "visibility": "authenticated"},
+      {"name": "record-battleships-payment", "visibility": "event"}
+    ]
+  },
+  "events": {
+    "onInvoicePaid": "record-battleships-payment"
+  },
+  "ui_routes": [
+    {
+      "path": "/battleshipswasm",
+      "entrypoint": "ui/admin.html",
+      "auth": "user"
+    },
+    {
+      "path": "/battleshipswasm/games/{game_id}",
+      "entrypoint": "ui/public.html",
+      "auth": "public",
+      "path_params": {"game_id": "gameId"}
+    }
+  ],
+  "api_routes": [
+    {
+      "method": "GET",
+      "path": "/settings",
+      "export": "get-battleships-settings",
+      "auth": "user"
+    },
+    {
+      "method": "PUT",
+      "path": "/settings",
+      "export": "save-battleships-settings",
+      "auth": "user"
+    },
+    {
+      "method": "GET",
+      "path": "/wallets",
+      "export": "list-battleships-wallets",
+      "auth": "user"
+    },
+    {
+      "method": "POST",
+      "path": "/games",
+      "export": "create-battleships-game",
+      "auth": "user"
+    },
+    {
+      "method": "GET",
+      "path": "/games",
+      "export": "list-battleships-games",
+      "auth": "user"
+    },
+    {
+      "method": "DELETE",
+      "path": "/games/{game_id}",
+      "export": "delete-battleships-game",
+      "auth": "user",
+      "path_params": {"game_id": "gameId"}
+    },
+    {
+      "method": "GET",
+      "path": "/games/{game_id}",
+      "export": "get-public-battleships-game",
+      "auth": "public",
+      "path_params": {"game_id": "gameId"},
+      "ownerContext": {
+        "table": "battleships_games",
+        "idParam": "gameId"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/games/{game_id}/join",
+      "export": "join-battleships-game",
+      "auth": "public",
+      "path_params": {"game_id": "gameId"},
+      "ownerContext": {
+        "table": "battleships_games",
+        "idParam": "gameId"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/games/{game_id}/fleet",
+      "export": "place-battleships-fleet",
+      "auth": "public",
+      "path_params": {"game_id": "gameId"},
+      "ownerContext": {
+        "table": "battleships_games",
+        "idParam": "gameId"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/games/{game_id}/shots",
+      "export": "fire-battleships-shot",
+      "auth": "public",
+      "path_params": {"game_id": "gameId"},
+      "ownerContext": {
+        "table": "battleships_games",
+        "idParam": "gameId"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/games/{game_id}/resign",
+      "export": "resign-battleships-game",
+      "auth": "public",
+      "path_params": {"game_id": "gameId"},
+      "ownerContext": {
+        "table": "battleships_games",
+        "idParam": "gameId"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/games/{game_id}/payout",
+      "export": "settle-player-battleships-payout",
+      "auth": "public",
+      "path_params": {"game_id": "gameId"},
+      "ownerContext": {
+        "table": "battleships_games",
+        "idParam": "gameId"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/games/{game_id}/settle",
+      "export": "settle-battleships-game",
+      "auth": "user",
+      "path_params": {"game_id": "gameId"}
+    }
+  ],
+  "permissions": [
+    {
+      "id": "ext.storage.read",
+      "description": "Read Battleships settings, games, players, fleets, and shots."
+    },
+    {
+      "id": "ext.storage.read_public",
+      "description": "Read public Battleships game and shot fields.",
+      "policies": [
+        {
+          "table_name": "battleships_games",
+          "public_fields": [
+            "id",
+            "settings_id",
+            "name",
+            "join_amount",
+            "haircut",
+            "players_count",
+            "status",
+            "player_one_fleet_placed",
+            "player_two_fleet_placed",
+            "winner_side",
+            "payout_pending",
+            "payout_status",
+            "turn",
+            "shot_count",
+            "created_at",
+            "updated_at",
+            "started_at",
+            "completed_at"
+          ]
+        },
+        {
+          "table_name": "battleships_shots",
+          "source_id_field": "game_id",
+          "public_fields": [
+            "id",
+            "game_id",
+            "shot_number",
+            "side",
+            "target_side",
+            "cell",
+            "result",
+            "ship",
+            "sunk",
+            "created_at"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ext.storage.write",
+      "description": "Write Battleships settings, games, players, fleets, shots, and payment state."
+    },
+    {
+      "id": "wallet.list",
+      "description": "Show the installing user's wallets for Battleships receipts."
+    },
+    {
+      "id": "wallet.create_invoice_public",
+      "description": "Create public join invoices for configured Battleships wallets.",
+      "policies": [
+        {"table": "battleships_games", "wallet_field": "wallet_id"}
+      ]
+    },
+    {
+      "id": "wallet.pay_invoice",
+      "description": "Pay Battleships winner payouts to Lightning addresses."
+    },
+    {
+      "id": "wallet.pay_invoice_background",
+      "description": "Pay Battleships winner payouts to Lightning addresses."
+    },
+    {
+      "id": "websocket.publish",
+      "description": "Publish Battleships payment and game updates.",
+      "policies": [{"max_messages_per_second": 20}]
+    },
+    {
+      "id": "websocket.subscribe",
+      "description": "Receive live Battleships game updates."
+    }
+  ]
+}

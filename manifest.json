@@ -1,0 +1,9 @@
+{
+  "repos": [
+    {
+      "id": "battleshipswasm",
+      "organisation": "lnbits",
+      "repository": "battleshipswasm"
+    }
+  ]
+}

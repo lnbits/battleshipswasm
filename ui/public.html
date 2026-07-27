@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Battleships</title>
+    <link rel="stylesheet" href="/ext-assets/battleshipswasm/_lnbits/bundle.min.css" />
+    <link rel="stylesheet" href="/ext-assets/battleshipswasm/_lnbits/material-icons.css" />
+    <link rel="stylesheet" href="/ext-assets/battleshipswasm/app.css" />
+  </head>
+  <body data-theme="bitcoin" class="body--dark">
+    <main class="shell q-pa-md" data-theme="bitcoin">
+      <header class="row items-center justify-between q-mb-md q-gutter-md">
+        <div class="row items-center q-gutter-sm">
+          <div class="battleships-mark" aria-hidden="true">🚢</div>
+          <div>
+            <h1 class="text-h4 text-weight-bold q-my-none">Battleships</h1>
+            <p id="game-subtitle" class="text-subtitle2 text-grey-5 q-my-none">
+              Paid public naval combat.
+            </p>
+          </div>
+        </div>
+        <button id="copy-game-button" class="q-btn subtle-button" type="button">
+          Copy Link
+        </button>
+      </header>
+
+      <section class="game-layout">
+        <div class="board-panel panel q-card q-card--dark q-pa-md">
+          <div class="game-topline">
+            <div>
+              <h2 id="game-title" class="text-h5 text-weight-bold q-my-none">Loading...</h2>
+              <p id="game-status" class="muted q-mb-none q-mt-xs">Loading game</p>
+            </div>
+            <button id="resign-button" class="q-btn danger-button" type="button" hidden>
+              Resign
+            </button>
+          </div>
+
+          <div id="placement-controls" class="placement-controls q-mb-md" hidden>
+            <div>
+              <h3 class="text-subtitle1 text-weight-bold q-my-none">Place your fleet</h3>
+              <p id="placement-help" class="muted q-my-none">
+                Select a ship, choose its direction, then select a starting cell.
+              </p>
+            </div>
+            <div id="ship-selector" class="ship-selector"></div>
+            <div class="row q-gutter-sm">
+              <button id="orientation-button" class="q-btn subtle-button" type="button">
+                Horizontal
+              </button>
+              <button id="randomize-button" class="q-btn subtle-button" type="button">
+                Randomize
+              </button>
+              <button id="reset-fleet-button" class="q-btn subtle-button" type="button">
+                Reset
+              </button>
+              <button id="submit-fleet-button" class="q-btn bg-primary text-white" type="button">
+                Lock Fleet
+              </button>
+            </div>
+          </div>
+
+          <div id="battlefield" class="battlefield">
+            <section class="ocean-panel">
+              <div class="board-heading">
+                <h3 id="own-board-title" class="text-subtitle1 text-weight-bold q-my-none">
+                  Your fleet
+                </h3>
+                <span id="own-board-note" class="muted"></span>
+              </div>
+              <div id="own-grid" class="ocean-grid" aria-label="Your ocean grid"></div>
+            </section>
+            <section class="ocean-panel">
+              <div class="board-heading">
+                <h3 id="target-board-title" class="text-subtitle1 text-weight-bold q-my-none">
+                  Target grid
+                </h3>
+                <span id="target-board-note" class="muted"></span>
+              </div>
+              <div id="target-grid" class="ocean-grid" aria-label="Opponent ocean grid"></div>
+            </section>
+          </div>
+        </div>
+
+        <aside class="side-panel panel q-card q-card--dark q-pa-md">
+          <div id="join-form-column">
+            <h2 class="text-h6 text-weight-bold q-my-none q-mb-md">Join Game</h2>
+            <div id="join-form" class="form q-gutter-md">
+              <label>
+                <span class="text-caption text-grey-5">Lightning address</span>
+                <input name="lnAddress" placeholder="you@example.com" required />
+              </label>
+              <button id="join-button" class="q-btn bg-primary text-white full-width" type="button">
+                <span class="button-spinner" aria-hidden="true"></span>
+                <span class="button-label">Pay to Join</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="stats q-mt-md">
+            <div class="stat-item">
+              <span class="text-caption text-grey-5">Players</span>
+              <strong id="players-stat">0 / 2</strong>
+            </div>
+            <div class="stat-item">
+              <span class="text-caption text-grey-5">Join amount</span>
+              <strong id="amount-stat">0 sats</strong>
+            </div>
+            <div class="stat-item">
+              <span class="text-caption text-grey-5">Haircut</span>
+              <strong id="haircut-stat">0%</strong>
+            </div>
+          </div>
+
+          <div class="q-mt-md">
+            <h3 class="text-subtitle1 text-weight-bold q-my-none q-mb-sm">Players</h3>
+            <div id="player-list" class="player-list"></div>
+          </div>
+
+          <div class="q-mt-md">
+            <h3 class="text-subtitle1 text-weight-bold q-my-none q-mb-sm">Battle log</h3>
+            <div id="shot-list" class="move-list"></div>
+          </div>
+        </aside>
+      </section>
+
+      <div
+        id="invoice-dialog"
+        class="invoice-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="invoice-dialog-title"
+        hidden
+      >
+        <button
+          class="invoice-dialog-backdrop"
+          type="button"
+          aria-label="Close invoice"
+          data-close-invoice
+        ></button>
+        <div class="invoice-dialog-card panel q-card q-card--dark q-pa-md">
+          <div class="row items-center justify-between q-mb-md">
+            <h2 id="invoice-dialog-title" class="text-h6 text-weight-bold q-my-none">
+              Pay Invoice
+            </h2>
+            <button class="invoice-close-button q-btn text-grey-5" type="button" data-close-invoice>
+              Close
+            </button>
+          </div>
+          <div id="invoice-qrcode" class="invoice-qrcode"></div>
+          <p id="invoice-status" class="invoice-status muted">Waiting for payment</p>
+          <button id="copy-invoice-button" class="q-btn invoice-copy-button text-grey-2" type="button">
+            Copy Invoice
+          </button>
+        </div>
+        <div id="confetti-layer" class="confetti-layer" aria-hidden="true"></div>
+      </div>
+    </main>
+    <script src="/ext-assets/battleshipswasm/_lnbits/vue.global.prod.js"></script>
+    <script src="/ext-assets/battleshipswasm/_lnbits/qrcode.vue.browser.js"></script>
+    <script src="/ext-assets/battleshipswasm/lnbits-extension-sdk.js"></script>
+    <script src="/ext-assets/battleshipswasm/public.js"></script>
+  </body>
+</html>
