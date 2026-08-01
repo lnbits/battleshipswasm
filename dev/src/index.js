@@ -5,7 +5,6 @@ const GAMES_TABLE = 'battleships_games'
 const PLAYERS_TABLE = 'battleships_players'
 const FLEETS_TABLE = 'battleships_fleets'
 const SHOTS_TABLE = 'battleships_shots'
-const SETTINGS_ID = 'battleshipswasm-settings'
 const MIN_JOIN_SATS = 20
 const GAME_SEARCH_FIELDS = ['name', 'winner_ln_address', 'status']
 const COLUMNS = 'ABCDEFGHIJ'
@@ -29,7 +28,7 @@ export function saveBattleshipsSettings(requestJson) {
     const walletId = cleanText(request.walletId ?? request.wallet_id, 128)
     const walletName = cleanText(request.walletName ?? request.wallet_name, 120)
     const settings = {
-      id: SETTINGS_ID,
+      id: existing.id || newSettingsId(),
       wallet_id: walletId,
       wallet_name: walletName || walletId,
       enabled: request.enabled === true,
@@ -581,19 +580,34 @@ function parseJsonObject(value) {
 }
 
 function getSettings() {
-  return storage.get(SETTINGS_TABLE, SETTINGS_ID, defaultSettings())
+  const response = storage.getPaginated(SETTINGS_TABLE, {
+    sortBy: 'created_at',
+    descending: false,
+    limit: 1,
+    offset: 0
+  })
+  return response.data[0] || defaultSettings()
 }
 
 function getSettingsById(settingsId) {
-  const settings = storage.get(SETTINGS_TABLE, settingsId || SETTINGS_ID, null)
+  const settings = settingsId
+    ? storage.get(SETTINGS_TABLE, settingsId, null)
+    : getSettings()
   if (!settings) throw new Error('Battleships settings not found.')
   return settings
+}
+
+function newSettingsId() {
+  const generatedId = system.id('battleships-settings')
+  const settingsId = typeof generatedId === 'string' ? generatedId : generatedId?.id
+  if (!settingsId) throw new Error('Could not generate a Battleships settings ID.')
+  return settingsId
 }
 
 function defaultSettings() {
   const now = system.now()
   return {
-    id: SETTINGS_ID,
+    id: '',
     wallet_id: '',
     wallet_name: '',
     enabled: false,

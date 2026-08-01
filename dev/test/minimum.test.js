@@ -8,16 +8,19 @@ source = source.replace(/^import .*\n\n/, '').replace(/export function /g, 'func
 function createGame(joinAmount, expectedOk = true) {
   let storedGame = null
   const storage = {
-    get(table) {
+    getPaginated(table) {
       if (table === 'battleships_settings') {
         return {
-          id: 'battleshipswasm-settings',
-          enabled: true,
-          wallet_id: 'wallet_1',
-          haircut: 0
+          data: [{
+            id: 'battleships-settings-1',
+            enabled: true,
+            wallet_id: 'wallet_1',
+            haircut: 0
+          }],
+          total: 1
         }
       }
-      return null
+      return {data: [], total: 0}
     },
     set(table, row) {
       if (table === 'battleships_games') storedGame = row
