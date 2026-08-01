@@ -294,7 +294,6 @@ const app = Vue.createApp({
     const QBtn = component('q-btn')
     const QCard = component('q-card')
     const QInput = component('q-input')
-    const QLayout = component('q-layout')
     const QSelect = component('q-select')
     const QTable = component('q-table')
     const QTd = component('q-td')
@@ -325,7 +324,7 @@ const app = Vue.createApp({
         ...props
       })
 
-    return h(QLayout, {view: 'hHh lpR fFf', class: 'shell q-pa-md'}, () => [
+    return h('main', {class: 'shell q-pa-md'}, [
       h('div', {class: 'row items-center q-mb-md q-gutter-sm'}, [
         h('div', {class: 'battleships-mark', 'aria-hidden': 'true'}, '🚢'),
         h('div', [

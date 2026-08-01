@@ -69,11 +69,17 @@
         })
       },
 
-      getPublicGame(gameId, playerToken = '') {
-        const query = playerToken
-          ? `?${new URLSearchParams({playerToken}).toString()}`
-          : ''
-        return request(`${baseUrl}/games/${encodeURIComponent(gameId)}${query}`)
+      getPublicGame(gameId, playerToken = '', options = {}) {
+        const query = new URLSearchParams()
+        if (playerToken) query.set('playerToken', playerToken)
+        if (Number.isInteger(options.shotOffset) && options.shotOffset >= 0) {
+          query.set('shotOffset', String(options.shotOffset))
+        }
+        if (Number.isInteger(options.shotLimit) && options.shotLimit > 0) {
+          query.set('shotLimit', String(options.shotLimit))
+        }
+        const suffix = query.toString() ? `?${query.toString()}` : ''
+        return request(`${baseUrl}/games/${encodeURIComponent(gameId)}${suffix}`)
       },
 
       joinGame(gameId, payload) {

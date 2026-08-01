@@ -1,7 +1,3 @@
-:root {
-  color-scheme: dark;
-}
-
 * {
   box-sizing: border-box;
 }
@@ -13,8 +9,16 @@ body {
 }
 
 body {
-  background: #0b1220;
+  background: transparent;
   color: white;
+}
+
+body.body--dark {
+  background: transparent;
+}
+
+body.battleships-body {
+  background: #0b1220;
 }
 
 [v-cloak],

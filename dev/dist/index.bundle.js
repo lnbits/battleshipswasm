@@ -527,6 +527,7 @@ const PLAYERS_TABLE = 'battleships_players'
 const FLEETS_TABLE = 'battleships_fleets'
 const SHOTS_TABLE = 'battleships_shots'
 const MIN_JOIN_SATS = 20
+const PUBLIC_SHOT_PAGE_SIZE = 10
 const GAME_SEARCH_FIELDS = ['name', 'winner_ln_address', 'status']
 const COLUMNS = 'ABCDEFGHIJ'
 const FLEET_SPEC = [
@@ -609,6 +610,8 @@ export function createBattleshipsGame(requestJson) {
       payout_status: '',
       turn: 'player1',
       shot_count: 0,
+      state_version: 0,
+      last_action_id: '',
       created_at: now,
       updated_at: now,
       started_at: null,
@@ -674,10 +677,16 @@ export function getPublicBattleshipsGame(requestJson) {
     const fleet = player
       ? storage.get(FLEETS_TABLE, fleetId(game.id, player.side), null)
       : null
+    const shotPage = publicShotsForGame(
+      game,
+      normalizePublicShotOffset(request.shotOffset ?? request.shot_offset),
+      normalizePublicShotPageSize(request.shotLimit ?? request.shot_limit)
+    )
     return {
       game: publicGame(game),
       players: publicPlayersFromGame(game),
-      shots: publicShotsForGame(game),
+      shots: shotPage.data,
+      shotsTotal: shotPage.total,
       player: player ? publicPlayer(player, true) : null,
       fleet: fleet ? publicFleet(fleet) : null,
       fleetSpec: FLEET_SPEC,
@@ -791,6 +800,7 @@ export function recordBattleshipsPayment(eventJson) {
       player_two_payment_hash:
         side === 'player2' ? paymentHash : game.player_two_payment_hash,
       status: playersCount === 2 ? 'placing' : 'waiting',
+      state_version: gameStateVersion(game) + 1,
       updated_at: now
     }
     storage.set(GAMES_TABLE, updatedGame)
@@ -836,7 +846,7 @@ export function placeBattleshipsFleet(requestJson) {
       player.side === 'player1'
         ? game.player_two_fleet_placed === true
         : game.player_one_fleet_placed === true
-    const updatedGame = {
+    const updatedGame = versionedGame(game, {
       ...game,
       player_one_fleet_placed:
         player.side === 'player1' ? true : game.player_one_fleet_placed === true,
@@ -846,7 +856,7 @@ export function placeBattleshipsFleet(requestJson) {
       turn: 'player1',
       started_at: otherPlaced ? now : game.started_at,
       updated_at: now
-    }
+    })
     storage.set(GAMES_TABLE, updatedGame)
     publishGame(updatedGame, otherPlaced ? 'battle-started' : 'fleet-placed')
     return {
@@ -869,17 +879,25 @@ export function fireBattleshipsShot(requestJson) {
     const cell = normalizeCell(request.cell)
     const game = getGame(gameId)
     const player = requirePaidPlayer(game, token)
+    const actionId =
+      normalizeActionId(request.actionId ?? request.action_id) ||
+      `legacy-${gameStateVersion(game)}-${player.side}-${cell}`
+    const priorAction = shotForAction(gameId, actionId)
+    if (priorAction) {
+      return idempotentShotResult(game, player, priorAction, cell)
+    }
+    const expectedVersion = optionalStateVersion(
+      request.expectedStateVersion ?? request.expected_state_version
+    )
+    if (expectedVersion !== null && expectedVersion !== gameStateVersion(game)) {
+      throw new Error('The game changed before this shot. Refresh and try again.')
+    }
     if (game.status !== 'active') throw new Error('This Battleships game is not active.')
     if (player.side !== game.turn) throw new Error(`It is ${game.turn}'s turn.`)
     const targetSide = oppositeSide(player.side)
     const targetFleet = storage.get(FLEETS_TABLE, fleetId(gameId, targetSide), null)
     if (!targetFleet) throw new Error("The opponent's fleet is missing.")
-    const priorShots = shotsForGame(gameId)
-    if (
-      priorShots.some(
-        shot => shot.target_side === targetSide && shot.cell === cell
-      )
-    ) {
+    if (shotForCell(gameId, targetSide, cell)) {
       throw new Error('That cell has already been targeted.')
     }
     const ships = parseStoredArray(targetFleet.ships_json, 'fleet')
@@ -897,6 +915,8 @@ export function fireBattleshipsShot(requestJson) {
       id: `${gameId}-${shotNumber}`,
       game_id: gameId,
       shot_number: shotNumber,
+      action_id: actionId,
+      state_version: gameStateVersion(game) + 1,
       side: player.side,
       target_side: targetSide,
       cell,
@@ -912,7 +932,7 @@ export function fireBattleshipsShot(requestJson) {
         hits_json: JSON.stringify(hits)
       })
     }
-    const updatedGame = {
+    const updatedGame = versionedGame(game, {
       ...game,
       status: won ? 'completed' : 'active',
       winner_side: won ? player.side : '',
@@ -921,10 +941,14 @@ export function fireBattleshipsShot(requestJson) {
       payout_status: won ? 'pending' : '',
       turn: won ? game.turn : targetSide,
       shot_count: shotNumber,
+      last_action_id: actionId,
       updated_at: now,
       completed_at: won ? now : null
-    }
+    })
     storage.set(GAMES_TABLE, updatedGame)
+    system.log(
+      `battleships: committed shot ${gameId} ${actionId} version ${updatedGame.state_version}`
+    )
     publishGame(updatedGame, won ? 'game-over' : 'shot')
     return {
       game: publicGame(updatedGame),
@@ -953,7 +977,7 @@ export function resignBattleshipsGame(requestJson) {
     const winner = playerFromGameBySide(game, winnerSide)
     if (!winner) throw new Error('Opponent is missing.')
     const now = system.now()
-    const updatedGame = {
+    const updatedGame = versionedGame(game, {
       ...game,
       status: 'completed',
       winner_side: winnerSide,
@@ -962,7 +986,7 @@ export function resignBattleshipsGame(requestJson) {
       payout_status: 'pending',
       updated_at: now,
       completed_at: now
-    }
+    })
     storage.set(GAMES_TABLE, updatedGame)
     publishGame(updatedGame, 'resigned')
     return {
@@ -1031,13 +1055,13 @@ export function settleBattleshipsGame(requestJson) {
 }
 
 function settleBattleshipsPayout(game, event) {
-  const processingGame = {
+  const processingGame = versionedGame(game, {
     ...game,
     payout_pending: true,
     payout_status: 'processing',
     updated_at: system.now(),
     completed_at: game.completed_at || system.now()
-  }
+  })
   storage.set(GAMES_TABLE, processingGame)
   const settings = getSettingsById(processingGame.settings_id)
   let payout
@@ -1053,12 +1077,12 @@ function settleBattleshipsPayout(game, event) {
   } catch (error) {
     payout = {ok: false, error: errorMessage(error)}
   }
-  const updatedGame = {
+  const updatedGame = versionedGame(processingGame, {
     ...processingGame,
     payout_pending: !payout.ok,
     payout_status: payout.ok ? 'paid' : 'failed',
     updated_at: system.now()
-  }
+  })
   storage.set(GAMES_TABLE, updatedGame)
   publishGame(updatedGame, event)
   return {game: updatedGame, payout}
@@ -1144,6 +1168,18 @@ function getGame(gameId) {
   const game = storage.get(GAMES_TABLE, gameId, null)
   if (!game) throw new Error('Battleships game not found.')
   return game
+}
+
+function gameStateVersion(game) {
+  return Math.max(0, Number(game.state_version || 0))
+}
+
+function versionedGame(game, updatedGame) {
+  return {
+    ...updatedGame,
+    state_version: gameStateVersion(game) + 1,
+    last_action_id: updatedGame.last_action_id || game.last_action_id || ''
+  }
 }
 
 function markPlayer(paymentHash, gameId, lnAddress, side, status) {
@@ -1258,26 +1294,103 @@ function requirePaidPlayer(game, token) {
   return player
 }
 
-function shotsForGame(gameId) {
+function shotForCell(gameId, targetSide, cell) {
   return storage.getPaginated(SHOTS_TABLE, {
-    filters: {game_id: gameId},
+    filters: {game_id: gameId, target_side: targetSide, cell},
     sortBy: 'shot_number',
     descending: false,
-    limit: 200,
+    limit: 1,
     offset: 0
-  }).data
+  }).data[0] || null
 }
 
-function publicShotsForGame(game) {
-  return storage
-    .getPublicPaginated(SHOTS_TABLE, {
-      sourceId: game.id,
-      sortBy: 'shot_number',
-      descending: false,
-      limit: 200,
-      offset: 0
+function shotForAction(gameId, actionId) {
+  return storage.getPaginated(SHOTS_TABLE, {
+    filters: {game_id: gameId, action_id: actionId},
+    sortBy: 'shot_number',
+    descending: false,
+    limit: 1,
+    offset: 0
+  }).data[0] || null
+}
+
+function idempotentShotResult(game, player, shot, cell) {
+  if (shot.side !== player.side || shot.cell !== cell) {
+    throw new Error('That shot action ID was already used for a different shot.')
+  }
+  const reconciledGame = reconcileShot(game, player, shot)
+  return {
+    game: publicGame(reconciledGame),
+    shot: publicShot(shot),
+    player: publicPlayer(player, true),
+    payout: {ok: true, pending: reconciledGame.payout_pending === true},
+    idempotent: true
+  }
+}
+
+function reconcileShot(game, player, shot) {
+  if (game.last_action_id === shot.action_id) return game
+  const shotNumber = Number(shot.shot_number || 0)
+  if (shotNumber !== Number(game.shot_count || 0) + 1) {
+    throw new Error('That shot was superseded by newer game state. Refresh the game.')
+  }
+  const shotVersion = Math.max(
+    gameStateVersion(game) + 1,
+    Number(shot.state_version || 0)
+  )
+  const targetFleet = storage.get(
+    FLEETS_TABLE,
+    fleetId(game.id, shot.target_side),
+    null
+  )
+  if (!targetFleet) throw new Error("The opponent's fleet is missing.")
+  const ships = parseStoredArray(targetFleet.ships_json, 'fleet')
+  const previousHits = parseStoredArray(targetFleet.hits_json, 'fleet hits')
+  const hits =
+    shot.result === 'hit' && !previousHits.includes(shot.cell)
+      ? [...previousHits, shot.cell]
+      : previousHits
+  if (hits.length !== previousHits.length) {
+    storage.set(FLEETS_TABLE, {
+      ...targetFleet,
+      hits_json: JSON.stringify(hits)
     })
-    .data.map(publicShot)
+  }
+  const won = ships.every(ship =>
+    ship.cells.every(shipCell => hits.includes(shipCell))
+  )
+  const reconciledGame = {
+    ...game,
+    status: won ? 'completed' : 'active',
+    winner_side: won ? player.side : '',
+    winner_ln_address: won ? player.ln_address : '',
+    payout_pending: won,
+    payout_status: won ? 'pending' : '',
+    turn: won ? game.turn : shot.target_side,
+    shot_count: shotNumber,
+    state_version: shotVersion,
+    last_action_id: shot.action_id,
+    updated_at: shot.created_at,
+    completed_at: won ? shot.created_at : null
+  }
+  storage.set(GAMES_TABLE, reconciledGame)
+  system.log(
+    `battleships: recovered shot ${game.id} ${shot.action_id} version ${shotVersion}`,
+    'warning'
+  )
+  publishGame(reconciledGame, won ? 'game-over' : 'shot')
+  return reconciledGame
+}
+
+function publicShotsForGame(game, offset = 0, limit = PUBLIC_SHOT_PAGE_SIZE) {
+  const response = storage.getPublicPaginated(SHOTS_TABLE, {
+    sourceId: game.id,
+    sortBy: 'shot_number',
+    descending: false,
+    limit: Math.min(limit, PUBLIC_SHOT_PAGE_SIZE),
+    offset
+  })
+  return {data: response.data.map(publicShot), total: response.total}
 }
 
 function fleetId(gameId, side) {
@@ -1434,6 +1547,8 @@ function publicGame(game) {
     payoutStatus: game.payout_status || '',
     turn: game.turn || 'player1',
     shotCount: Number(game.shot_count || 0),
+    stateVersion: gameStateVersion(game),
+    lastActionId: game.last_action_id || '',
     createdAt: Number(game.created_at || 0),
     updatedAt: Number(game.updated_at || 0),
     startedAt: Number(game.started_at || 0),
@@ -1466,6 +1581,7 @@ function publicShot(shot) {
     id: shot.id,
     gameId: shot.game_id,
     shotNumber: Number(shot.shot_number || 0),
+    actionId: shot.action_id || '',
     side: shot.side,
     targetSide: shot.target_side,
     cell: shot.cell,
@@ -1505,6 +1621,18 @@ function normalizePage(value) {
   return page
 }
 
+function normalizePublicShotOffset(value) {
+  const offset = Number(value || 0)
+  if (!Number.isInteger(offset) || offset < 0) return 0
+  return Math.min(offset, 200)
+}
+
+function normalizePublicShotPageSize(value) {
+  const size = Number(value || PUBLIC_SHOT_PAGE_SIZE)
+  if (!Number.isInteger(size) || size <= 0) return PUBLIC_SHOT_PAGE_SIZE
+  return Math.min(size, PUBLIC_SHOT_PAGE_SIZE)
+}
+
 function normalizeGameSortBy(value) {
   return (
     {
@@ -1531,6 +1659,20 @@ function normalizeCell(value) {
     throw new Error('A valid Battleships cell is required.')
   }
   return cell
+}
+
+function normalizeActionId(value) {
+  if (typeof value !== 'string') return ''
+  return value.trim().replace(/[^a-zA-Z0-9:_-]/g, '').slice(0, 96)
+}
+
+function optionalStateVersion(value) {
+  if (value === undefined || value === null || value === '') return null
+  const version = Number(value)
+  if (!Number.isInteger(version) || version < 0) {
+    throw new Error('expectedStateVersion must be a non-negative integer.')
+  }
+  return version
 }
 
 function oppositeSide(side) {

@@ -1,0 +1,41 @@
+{
+  "version": 2,
+  "operations": [
+    {
+      "op": "add_field",
+      "table": "battleships_games",
+      "field": {
+        "name": "state_version",
+        "type": "integer",
+        "default": 0
+      }
+    },
+    {
+      "op": "add_field",
+      "table": "battleships_shots",
+      "field": {
+        "name": "action_id",
+        "type": "string",
+        "default": ""
+      }
+    },
+    {
+      "op": "add_field",
+      "table": "battleships_games",
+      "field": {
+        "name": "last_action_id",
+        "type": "string",
+        "default": ""
+      }
+    },
+    {
+      "op": "add_field",
+      "table": "battleships_shots",
+      "field": {
+        "name": "state_version",
+        "type": "integer",
+        "default": 0
+      }
+    }
+  ]
+}

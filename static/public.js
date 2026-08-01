@@ -6,6 +6,7 @@ const DEFAULT_FLEET = [
   {name: 'destroyer', size: 2}
 ]
 const COLUMNS = 'ABCDEFGHIJ'
+const SHOT_PAGE_SIZE = 10
 
 const state = {
   game: null,
@@ -26,6 +27,7 @@ const state = {
   refreshTimer: null,
   rendering: false,
   renderAgain: false,
+  shotPending: false,
   notifiedCompletedAt: 0
 }
 
@@ -189,13 +191,13 @@ async function renderGame() {
       return
     }
     const previousGame = state.game
-    const response = await client.getPublicGame(state.gameId, playerToken())
+    const response = await loadGameState()
     if (!response?.game) throw new Error('Battleships game not found.')
     state.game = response.game
     state.player = response.player || null
     state.fleet = response.fleet || null
     state.fleetSpec = response.fleetSpec || DEFAULT_FLEET
-    state.shots = response.shots || []
+    state.shots = response.shots
     if (state.fleet) state.draftShips = []
     ensureSelectedShip()
 
@@ -229,6 +231,50 @@ async function renderGame() {
       queueRenderGame()
     }
   }
+}
+
+async function loadGameState() {
+  let shots = state.shots
+  let offset = shots.length
+  let response = await loadGamePage(offset)
+  let total = publicShotTotal(response)
+
+  if (offset > total) {
+    shots = []
+    offset = 0
+    response = await loadGamePage(offset)
+    total = publicShotTotal(response)
+  }
+
+  shots = appendShots(shots, response.shots)
+  while (shots.length < total) {
+    const previousLength = shots.length
+    response = await loadGamePage(previousLength)
+    total = publicShotTotal(response)
+    shots = appendShots(shots, response.shots)
+    if (shots.length === previousLength) break
+  }
+  return {...response, shots}
+}
+
+function loadGamePage(shotOffset) {
+  return client.getPublicGame(state.gameId, playerToken(), {
+    shotOffset,
+    shotLimit: SHOT_PAGE_SIZE
+  })
+}
+
+function publicShotTotal(response) {
+  const total = Number(response?.shotsTotal)
+  return Number.isInteger(total) && total >= 0
+    ? total
+    : (response?.shots || []).length
+}
+
+function appendShots(existing, additions = []) {
+  const byId = new Map(existing.map(shot => [shot.id, shot]))
+  for (const shot of additions) byId.set(shot.id, shot)
+  return [...byId.values()].sort((left, right) => left.shotNumber - right.shotNumber)
 }
 
 async function ensureRealtime() {
@@ -456,6 +502,7 @@ function ensureSelectedShip() {
 
 function canFire() {
   return !!(
+    !state.shotPending &&
     state.player &&
     state.game?.status === 'active' &&
     state.game.turn === state.player.side
@@ -464,22 +511,88 @@ function canFire() {
 
 async function fireShot(cell) {
   if (!canFire()) return
+  const action = {
+    actionId: newActionId('shot'),
+    expectedStateVersion: Number(state.game?.stateVersion || 0),
+    cell
+  }
+  state.shotPending = true
   targetGrid.classList.add('busy')
+  renderBattlefield()
+  let result = null
   try {
-    const result = await client.fireShot(state.gameId, {
-      playerToken: playerToken(),
-      cell
-    })
+    result = await fireShotWithRecovery(action)
     await settleCompletedGame(result)
     await renderGame()
+    if (!shotWasAccepted(action.actionId, result)) {
+      throw new Error('The shot response did not match the refreshed game state.')
+    }
     if (result?.shot?.result === 'hit') {
       notifyInfo(result.shot.sunk ? `You sunk the ${result.shot.ship}!` : 'Hit!', 'positive')
     }
   } catch (error) {
-    showError(error)
+    try {
+      await renderGame()
+    } catch (refreshError) {
+      console.warn('[battleships public] shot recovery refresh failed', refreshError)
+    }
+    if (shotWasAccepted(action.actionId, result)) {
+      notifyInfo('Shot accepted; game state was recovered after a response error.', 'positive')
+    } else {
+      showError(error)
+    }
   } finally {
+    state.shotPending = false
     targetGrid.classList.remove('busy')
+    renderBattlefield()
   }
+}
+
+async function fireShotWithRecovery(action) {
+  const payload = {
+    playerToken: playerToken(),
+    cell: action.cell,
+    actionId: action.actionId,
+    expectedStateVersion: action.expectedStateVersion
+  }
+  try {
+    return await client.fireShot(state.gameId, payload)
+  } catch (error) {
+    try {
+      await renderGame()
+    } catch (refreshError) {
+      console.warn('[battleships public] pre-retry refresh failed', refreshError)
+    }
+    if (shotWasAccepted(action.actionId)) {
+      return {
+        game: state.game,
+        shot: state.shots.find(shot => shot.actionId === action.actionId) || null,
+        recovered: true
+      }
+    }
+    if (
+      Number(state.game?.stateVersion || 0) !== action.expectedStateVersion ||
+      !canFireIgnoringPending()
+    ) {
+      throw error
+    }
+    return client.fireShot(state.gameId, payload)
+  }
+}
+
+function shotWasAccepted(actionId, result = null) {
+  return !!(
+    result?.shot?.actionId === actionId ||
+    state.game?.lastActionId === actionId
+  )
+}
+
+function canFireIgnoringPending() {
+  return !!(
+    state.player &&
+    state.game?.status === 'active' &&
+    state.game.turn === state.player.side
+  )
 }
 
 async function settleCompletedGame(result) {
@@ -696,6 +809,12 @@ function playerToken() {
   if (state.playerToken) return state.playerToken
   state.playerToken = tokenFromUrl()
   return state.playerToken
+}
+
+function newActionId(prefix) {
+  const id = window.crypto?.randomUUID?.()
+  if (id) return `${prefix}:${id}`
+  return `${prefix}:${Date.now()}:${Math.random().toString(36).slice(2)}`
 }
 
 function tokenFromUrl() {

@@ -25,6 +25,7 @@ assert.equal(
 )
 
 const rows = new Map()
+let failNextGameWrite = false
 const storage = {
   get(table, id, fallback) {
     return rows.get(`${table}:${id}`) || fallback
@@ -41,16 +42,31 @@ const storage = {
     return {data, total: data.length}
   },
   getPublicPaginated(table, options = {}) {
-    return this.getPaginated(table, {
+    const response = this.getPaginated(table, {
       filters: {game_id: options.sourceId}
     })
+    const offset = Number(options.offset || 0)
+    const limit = Number(options.limit || response.total)
+    return {
+      data: response.data.slice(offset, offset + limit),
+      total: response.total
+    }
   },
   set(table, row) {
+    if (table === 'battleships_games' && failNextGameWrite) {
+      failNextGameWrite = false
+      throw new Error('injected game-state write failure')
+    }
     rows.set(`${table}:${row.id}`, row)
   }
 }
 const system = {now: () => 1_700_000_000, log() {}}
-const websocket = {publish() {}}
+let dropRealtime = false
+const websocket = {
+  publish() {
+    if (dropRealtime) throw new Error('injected realtime delivery failure')
+  }
+}
 const api = Function(
   'storage', 'system', 'wallet', 'websocket',
   `${source}; return {placeBattleshipsFleet, fireBattleshipsShot, getPublicBattleshipsGame, normalizeFleet}`
@@ -147,18 +163,46 @@ const owner = JSON.parse(
 assert.equal(owner.data.fleet.side, 'player1')
 assert.equal(owner.data.fleet.ships.length, 5)
 
+dropRealtime = true
 const shot = JSON.parse(
   api.fireBattleshipsShot(
     JSON.stringify({
       gameId: 'battle_1',
       playerToken: 'token_one',
-      cell: 'A1'
+      cell: 'A1',
+      actionId: 'shot-action-1',
+      expectedStateVersion: placedTwo.data.game.stateVersion
     })
   )
 )
 assert.equal(shot.ok, true, shot.error)
 assert.equal(shot.data.shot.result, 'hit')
 assert.equal(shot.data.game.turn, 'player2')
+assert.equal(shot.data.game.stateVersion, 3)
+assert.equal(shot.data.shot.actionId, 'shot-action-1')
+
+const repeatedShot = JSON.parse(
+  api.fireBattleshipsShot(
+    JSON.stringify({
+      gameId: 'battle_1',
+      playerToken: 'token_one',
+      cell: 'A1',
+      actionId: 'shot-action-1',
+      expectedStateVersion: placedTwo.data.game.stateVersion
+    })
+  )
+)
+assert.equal(repeatedShot.ok, true, repeatedShot.error)
+assert.equal(repeatedShot.data.idempotent, true)
+assert.equal(repeatedShot.data.game.shotCount, 1)
+
+const publicAfterDroppedRealtime = JSON.parse(
+  api.getPublicBattleshipsGame(JSON.stringify({gameId: 'battle_1'}))
+)
+assert.equal(publicAfterDroppedRealtime.ok, true)
+assert.equal(publicAfterDroppedRealtime.data.game.stateVersion, 3)
+assert.equal(publicAfterDroppedRealtime.data.shots[0].actionId, 'shot-action-1')
+dropRealtime = false
 
 const outOfTurn = JSON.parse(
   api.fireBattleshipsShot(
@@ -171,5 +215,38 @@ const outOfTurn = JSON.parse(
 )
 assert.equal(outOfTurn.ok, false)
 assert.match(outOfTurn.error, /player2/)
+
+failNextGameWrite = true
+const interruptedRequest = {
+  gameId: 'battle_1',
+  playerToken: 'token_two',
+  cell: 'J10',
+  actionId: 'shot-action-interrupted',
+  expectedStateVersion: 3
+}
+const interruptedShot = JSON.parse(
+  api.fireBattleshipsShot(JSON.stringify(interruptedRequest))
+)
+assert.equal(interruptedShot.ok, false)
+assert.match(interruptedShot.error, /injected game-state write failure/)
+assert.equal(rows.get('battleships_games:battle_1').state_version, 3)
+assert.equal(
+  [...rows.values()].some(row => row.action_id === 'shot-action-interrupted'),
+  true,
+  'The shot journal must survive an interrupted game-state write.'
+)
+
+const recoveredShot = JSON.parse(
+  api.fireBattleshipsShot(JSON.stringify(interruptedRequest))
+)
+assert.equal(recoveredShot.ok, true, recoveredShot.error)
+assert.equal(recoveredShot.data.idempotent, true)
+assert.equal(recoveredShot.data.game.stateVersion, 4)
+assert.equal(recoveredShot.data.game.shotCount, 2)
+assert.equal(recoveredShot.data.game.turn, 'player1')
+assert.equal(
+  rows.get('battleships_games:battle_1').last_action_id,
+  'shot-action-interrupted'
+)
 
 console.log('Battleships fleet privacy and gameplay tests passed')
